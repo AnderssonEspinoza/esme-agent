@@ -41,6 +41,14 @@ function normalizeDay(day: string) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
 function normalizeTime(value: string) {
   const match = value.trim().toLowerCase().match(/^(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?$/i);
   if (!match) {
@@ -197,7 +205,22 @@ export async function POST(request: Request) {
 
     validEvents.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 
-    if (validEvents.length === 0) {
+    const dedupedEvents: typeof validEvents = [];
+    const seen = new Set<string>();
+    for (const event of validEvents) {
+      const key = [
+        normalizeText(event.title),
+        event.startsAt,
+        event.endsAt,
+        normalizeText(event.location ?? ""),
+      ].join("|");
+      if (!seen.has(key)) {
+        seen.add(key);
+        dedupedEvents.push(event);
+      }
+    }
+
+    if (dedupedEvents.length === 0) {
       return NextResponse.json(
         {
           error: "No se pudo importar ningún bloque del horario.",
@@ -210,16 +233,16 @@ export async function POST(request: Request) {
     let insertedEvents: Array<{ id: string; title: string; starts_at: string }> = [];
     if (isSupabaseAdminConfigured()) {
       try {
-        insertedEvents = (await insertEvents({ events: validEvents })) as Array<{
+        insertedEvents = (await insertEvents({ events: dedupedEvents })) as Array<{
           id: string;
           title: string;
           starts_at: string;
         }>;
       } catch {
-        insertedEvents = await insertEventsLocal({ events: validEvents });
+        insertedEvents = await insertEventsLocal({ events: dedupedEvents });
       }
     } else {
-      insertedEvents = await insertEventsLocal({ events: validEvents });
+      insertedEvents = await insertEventsLocal({ events: dedupedEvents });
     }
 
     const reminders = insertedEvents
@@ -256,7 +279,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      imported: validEvents.length,
+      imported: dedupedEvents.length,
+      deduplicated: validEvents.length - dedupedEvents.length,
       remindersCreated: reminders.length,
       skipped,
     });

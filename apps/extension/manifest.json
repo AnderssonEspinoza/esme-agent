@@ -17,6 +17,14 @@
       "matches": ["https://www.linkedin.com/*"],
       "js": ["content-linkedin.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.netacad.com/*",
+        "https://*.skillsforall.com/*"
+      ],
+      "js": ["content-cisco.js"],
+      "run_at": "document_idle"
     }
   ],
   "options_page": "options.html",
@@ -24,4 +32,3 @@
     "default_title": "XIO Capture"
   }
 }
-

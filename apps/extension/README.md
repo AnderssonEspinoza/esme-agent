@@ -15,5 +15,6 @@ Extension privada para capturar informacion desde paginas que ya estas viendo co
 ## Objetivo
 
 - leer vacantes o datos visibles en LinkedIn
-- luego extender a tu portal universitario
+- capturar entregas/fechas desde Cisco (NetAcad / SkillsForAll)
+- capturar entregas desde cualquier portal universitario al hacer click en el icono de la extension
 - enviar la captura a `POST /api/ingest/browser`

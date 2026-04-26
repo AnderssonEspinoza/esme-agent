@@ -89,6 +89,8 @@ type LocalStore = {
 const STORE_DIR = path.join(process.cwd(), ".xio-data");
 const STORE_FILE = path.join(STORE_DIR, "store.json");
 const STORE_TMP_FILE = path.join(STORE_DIR, "store.tmp.json");
+const DASHBOARD_EVENTS_LIMIT = 500;
+const DASHBOARD_GENERIC_LIMIT = 200;
 let storeQueue: Promise<void> = Promise.resolve();
 
 function withStoreLock<T>(operation: () => Promise<T>) {
@@ -244,10 +246,10 @@ async function readStore() {
 export async function fetchDashboardRowsLocal() {
   const store = await readStore();
   return {
-    tasks: withNullsLastDateSort(store.tasks, "due_at").slice(0, 20),
-    events: withNullsLastDateSort(store.events, "starts_at").slice(0, 20),
-    exams: withNullsLastDateSort(store.exams, "exam_at").slice(0, 20),
-    projects: withNullsLastDateSort(store.projects, "due_at").slice(0, 20),
+    tasks: withNullsLastDateSort(store.tasks, "due_at").slice(0, DASHBOARD_GENERIC_LIMIT),
+    events: withNullsLastDateSort(store.events, "starts_at").slice(0, DASHBOARD_EVENTS_LIMIT),
+    exams: withNullsLastDateSort(store.exams, "exam_at").slice(0, DASHBOARD_GENERIC_LIMIT),
+    projects: withNullsLastDateSort(store.projects, "due_at").slice(0, DASHBOARD_GENERIC_LIMIT),
   };
 }
 

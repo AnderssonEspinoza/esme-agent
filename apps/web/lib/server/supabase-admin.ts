@@ -254,10 +254,10 @@ export async function markReminderSent(reminderId: string) {
 
 export async function fetchDashboardRows() {
   const [tasks, events, exams, projects] = await Promise.all([
-    fetchTable("tasks?select=*&order=due_at.asc.nullslast&limit=20"),
-    fetchTable("events?select=*&order=starts_at.asc&limit=20"),
-    fetchTable("exams?select=*&order=exam_at.asc&limit=20"),
-    fetchTable("projects?select=*&order=due_at.asc.nullslast&limit=20"),
+    fetchTable("tasks?select=*&order=due_at.asc.nullslast&limit=200"),
+    fetchTable("events?select=*&order=starts_at.asc&limit=500"),
+    fetchTable("exams?select=*&order=exam_at.asc&limit=200"),
+    fetchTable("projects?select=*&order=due_at.asc.nullslast&limit=200"),
   ]);
 
   return { tasks, events, exams, projects };
