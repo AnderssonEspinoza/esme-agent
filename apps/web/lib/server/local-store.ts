@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -88,6 +88,17 @@ type LocalStore = {
 
 const STORE_DIR = path.join(process.cwd(), ".xio-data");
 const STORE_FILE = path.join(STORE_DIR, "store.json");
+const STORE_TMP_FILE = path.join(STORE_DIR, "store.tmp.json");
+let storeQueue: Promise<void> = Promise.resolve();
+
+function withStoreLock<T>(operation: () => Promise<T>) {
+  const task = storeQueue.then(operation, operation);
+  storeQueue = task.then(
+    () => undefined,
+    () => undefined,
+  );
+  return task;
+}
 
 function withNullsLastDateSort<T extends Record<string, unknown>>(rows: T[], key: keyof T) {
   return [...rows].sort((a, b) => {
@@ -97,45 +108,137 @@ function withNullsLastDateSort<T extends Record<string, unknown>>(rows: T[], key
   });
 }
 
-async function ensureStore(): Promise<void> {
+function createInitialStore() {
+  const now = new Date().toISOString();
+  const initial: LocalStore = {
+    version: 1,
+    profiles: [
+      {
+        id: DEFAULT_PROFILE_ID,
+        email: "local@xio.local",
+        full_name: "Usuario local",
+        timezone: "America/Lima",
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    tasks: [],
+    events: [],
+    exams: [],
+    projects: [],
+    reminders: [],
+    notes: [],
+  };
+  return initial;
+}
+
+async function ensureStoreUnlocked(): Promise<void> {
   await mkdir(STORE_DIR, { recursive: true });
 
   try {
     await readFile(STORE_FILE, "utf8");
   } catch {
-    const now = new Date().toISOString();
-    const initial: LocalStore = {
-      version: 1,
-      profiles: [
-        {
-          id: DEFAULT_PROFILE_ID,
-          email: "local@xio.local",
-          full_name: "Usuario local",
-          timezone: "America/Lima",
-          created_at: now,
-          updated_at: now,
-        },
-      ],
-      tasks: [],
-      events: [],
-      exams: [],
-      projects: [],
-      reminders: [],
-      notes: [],
-    };
+    const initial = createInitialStore();
     await writeFile(STORE_FILE, JSON.stringify(initial, null, 2), "utf8");
   }
 }
 
-async function readStore(): Promise<LocalStore> {
-  await ensureStore();
-  const raw = await readFile(STORE_FILE, "utf8");
-  return JSON.parse(raw) as LocalStore;
+function extractFirstJsonObject(raw: string) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let start = -1;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0 && start !== -1) {
+        return raw.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
 }
 
-async function writeStore(data: LocalStore): Promise<void> {
-  await ensureStore();
-  await writeFile(STORE_FILE, JSON.stringify(data, null, 2), "utf8");
+function parseStoreSafely(raw: string) {
+  try {
+    return JSON.parse(raw) as LocalStore;
+  } catch {
+    const recovered = extractFirstJsonObject(raw);
+    if (!recovered) {
+      return null;
+    }
+    try {
+      return JSON.parse(recovered) as LocalStore;
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function readStoreUnlocked(): Promise<LocalStore> {
+  await ensureStoreUnlocked();
+  const raw = await readFile(STORE_FILE, "utf8");
+  const parsed = parseStoreSafely(raw);
+
+  if (parsed) {
+    if (JSON.stringify(parsed) !== raw.trim()) {
+      // Reescribe el archivo si detectamos basura extra al final.
+      await writeStoreUnlocked(parsed);
+    }
+    return parsed;
+  }
+
+  const fallback = createInitialStore();
+  await writeStoreUnlocked(fallback);
+  return fallback;
+}
+
+async function writeStoreUnlocked(data: LocalStore): Promise<void> {
+  await ensureStoreUnlocked();
+  const content = JSON.stringify(data, null, 2);
+  await writeFile(STORE_TMP_FILE, content, "utf8");
+  await rename(STORE_TMP_FILE, STORE_FILE);
+}
+
+async function mutateStore<T>(updater: (store: LocalStore) => T | Promise<T>) {
+  return withStoreLock(async () => {
+    const store = await readStoreUnlocked();
+    const result = await updater(store);
+    await writeStoreUnlocked(store);
+    return result;
+  });
+}
+
+async function readStore() {
+  return withStoreLock(async () => readStoreUnlocked());
 }
 
 export async function fetchDashboardRowsLocal() {
@@ -155,46 +258,46 @@ export async function insertTaskLocal(input: {
   priority?: Priority;
   dueAt?: string | null;
 }) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  const row: TaskRow = {
-    id: randomUUID(),
-    profile_id: DEFAULT_PROFILE_ID,
-    project_id: null,
-    title: input.title,
-    description: input.description ?? null,
-    status: "active",
-    priority: input.priority ?? "medium",
-    due_at: input.dueAt ?? null,
-    scheduled_for: input.dueAt ?? null,
-    completed_at: null,
-    is_all_day: false,
-    is_important: input.priority === "high" || input.priority === "critical",
-    reminder_strategy: "auto",
-    source_type: input.sourceType ?? "manual",
-    created_at: now,
-    updated_at: now,
-  };
-  store.tasks.push(row);
-  await writeStore(store);
-  return [row];
+  return mutateStore((store) => {
+    const now = new Date().toISOString();
+    const row: TaskRow = {
+      id: randomUUID(),
+      profile_id: DEFAULT_PROFILE_ID,
+      project_id: null,
+      title: input.title,
+      description: input.description ?? null,
+      status: "active",
+      priority: input.priority ?? "medium",
+      due_at: input.dueAt ?? null,
+      scheduled_for: input.dueAt ?? null,
+      completed_at: null,
+      is_all_day: false,
+      is_important: input.priority === "high" || input.priority === "critical",
+      reminder_strategy: "auto",
+      source_type: input.sourceType ?? "manual",
+      created_at: now,
+      updated_at: now,
+    };
+    store.tasks.push(row);
+    return [row];
+  });
 }
 
 export async function markTaskDoneLocal(taskId: string) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  store.tasks = store.tasks.map((task) =>
-    task.id === taskId
-      ? { ...task, status: "done", completed_at: now, updated_at: now }
-      : task,
-  );
-  await writeStore(store);
+  await mutateStore((store) => {
+    const now = new Date().toISOString();
+    store.tasks = store.tasks.map((task) =>
+      task.id === taskId
+        ? { ...task, status: "done", completed_at: now, updated_at: now }
+        : task,
+    );
+  });
 }
 
 export async function deleteTaskLocal(taskId: string) {
-  const store = await readStore();
-  store.tasks = store.tasks.filter((task) => task.id !== taskId);
-  await writeStore(store);
+  await mutateStore((store) => {
+    store.tasks = store.tasks.filter((task) => task.id !== taskId);
+  });
 }
 
 export async function insertEventsLocal(input: {
@@ -208,26 +311,26 @@ export async function insertEventsLocal(input: {
     sourceType?: SourceType;
   }>;
 }) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  const rows = input.events.map((event) => ({
-    id: randomUUID(),
-    profile_id: DEFAULT_PROFILE_ID,
-    title: event.title,
-    description: event.description ?? null,
-    location: event.location ?? null,
-    starts_at: event.startsAt,
-    ends_at: event.endsAt ?? null,
-    requires_travel: event.requiresTravel ?? false,
-    status: "scheduled" as const,
-    reminder_strategy: "auto" as const,
-    source_type: event.sourceType ?? "import",
-    created_at: now,
-    updated_at: now,
-  }));
-  store.events.push(...rows);
-  await writeStore(store);
-  return rows;
+  return mutateStore((store) => {
+    const now = new Date().toISOString();
+    const rows = input.events.map((event) => ({
+      id: randomUUID(),
+      profile_id: DEFAULT_PROFILE_ID,
+      title: event.title,
+      description: event.description ?? null,
+      location: event.location ?? null,
+      starts_at: event.startsAt,
+      ends_at: event.endsAt ?? null,
+      requires_travel: event.requiresTravel ?? false,
+      status: "scheduled" as const,
+      reminder_strategy: "auto" as const,
+      source_type: event.sourceType ?? "import",
+      created_at: now,
+      updated_at: now,
+    }));
+    store.events.push(...rows);
+    return rows;
+  });
 }
 
 export async function insertRemindersLocal(input: {
@@ -243,46 +346,46 @@ export async function insertRemindersLocal(input: {
     kind?: "alert" | "rescue" | "summary" | "follow_up";
   }>;
 }) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  const rows = input.reminders.map((reminder) => ({
-    id: randomUUID(),
-    profile_id: DEFAULT_PROFILE_ID,
-    task_id: reminder.taskId ?? null,
-    event_id: reminder.eventId ?? null,
-    exam_id: reminder.examId ?? null,
-    project_id: reminder.projectId ?? null,
-    source: reminder.source ?? "auto",
-    kind: reminder.kind ?? "alert",
-    title: reminder.title,
-    message: reminder.message ?? null,
-    remind_at: reminder.remindAt,
-    status: "pending" as const,
-    snoozed_until: null,
-    sent_at: null,
-    delivered_at: null,
-    created_at: now,
-    updated_at: now,
-  }));
-  store.reminders.push(...rows);
-  await writeStore(store);
-  return rows;
+  return mutateStore((store) => {
+    const now = new Date().toISOString();
+    const rows = input.reminders.map((reminder) => ({
+      id: randomUUID(),
+      profile_id: DEFAULT_PROFILE_ID,
+      task_id: reminder.taskId ?? null,
+      event_id: reminder.eventId ?? null,
+      exam_id: reminder.examId ?? null,
+      project_id: reminder.projectId ?? null,
+      source: reminder.source ?? "auto",
+      kind: reminder.kind ?? "alert",
+      title: reminder.title,
+      message: reminder.message ?? null,
+      remind_at: reminder.remindAt,
+      status: "pending" as const,
+      snoozed_until: null,
+      sent_at: null,
+      delivered_at: null,
+      created_at: now,
+      updated_at: now,
+    }));
+    store.reminders.push(...rows);
+    return rows;
+  });
 }
 
 export async function insertNoteLocal(input: { title?: string; content: string }) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  const row = {
-    id: randomUUID(),
-    profile_id: DEFAULT_PROFILE_ID,
-    title: input.title ?? null,
-    content: input.content,
-    created_at: now,
-    updated_at: now,
-  };
-  store.notes.push(row);
-  await writeStore(store);
-  return [row];
+  return mutateStore((store) => {
+    const now = new Date().toISOString();
+    const row = {
+      id: randomUUID(),
+      profile_id: DEFAULT_PROFILE_ID,
+      title: input.title ?? null,
+      content: input.content,
+      created_at: now,
+      updated_at: now,
+    };
+    store.notes.push(row);
+    return [row];
+  });
 }
 
 export async function fetchDueRemindersLocal() {
@@ -295,12 +398,12 @@ export async function fetchDueRemindersLocal() {
 }
 
 export async function markReminderSentLocal(reminderId: string) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  store.reminders = store.reminders.map((reminder) =>
-    reminder.id === reminderId
-      ? { ...reminder, status: "sent", sent_at: now, updated_at: now }
-      : reminder,
-  );
-  await writeStore(store);
+  await mutateStore((store) => {
+    const now = new Date().toISOString();
+    store.reminders = store.reminders.map((reminder) =>
+      reminder.id === reminderId
+        ? { ...reminder, status: "sent", sent_at: now, updated_at: now }
+        : reminder,
+    );
+  });
 }

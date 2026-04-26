@@ -13,32 +13,69 @@ type ScheduleItem = {
 
 const DAY_TO_INDEX: Record<string, number> = {
   lunes: 1,
+  lun: 1,
   martes: 2,
+  mar: 2,
   miercoles: 3,
   miércoles: 3,
+  mier: 3,
+  mie: 3,
   jueves: 4,
+  jue: 4,
   viernes: 5,
+  vie: 5,
   sabado: 6,
   sábado: 6,
+  sab: 6,
   domingo: 0,
+  dom: 0,
 };
 const WEEKS_TO_GENERATE = 8;
 const REMINDER_OFFSET_MINUTES = 60;
 
 function normalizeDay(day: string) {
-  return day.trim().toLowerCase();
+  return day
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
 }
 
-function parseTime(value: string) {
-  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+function normalizeTime(value: string) {
+  const match = value.trim().toLowerCase().match(/^(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?$/i);
   if (!match) {
     return null;
   }
 
   const hours = Number.parseInt(match[1] ?? "", 10);
-  const minutes = Number.parseInt(match[2] ?? "", 10);
+  const minutes = Number.parseInt(match[2] ?? "0", 10);
+  const marker = (match[3] ?? "").toLowerCase();
 
-  if (hours > 23 || minutes > 59) {
+  let normalizedHours = hours;
+  if (marker === "am" && normalizedHours === 12) {
+    normalizedHours = 0;
+  }
+  if (marker === "pm" && normalizedHours < 12) {
+    normalizedHours += 12;
+  }
+
+  if (normalizedHours > 23 || normalizedHours < 0 || minutes > 59 || minutes < 0) {
+    return null;
+  }
+
+  return `${String(normalizedHours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function parseTime(value: string) {
+  const normalized = normalizeTime(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const [hoursText, minutesText] = normalized.split(":");
+  const hours = Number.parseInt(hoursText ?? "", 10);
+  const minutes = Number.parseInt(minutesText ?? "", 10);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
     return null;
   }
 
@@ -111,8 +148,8 @@ export async function POST(request: Request) {
     for (const item of items) {
       const title = item.title?.trim();
       const day = item.day?.trim();
-      const start = item.start?.trim();
-      const end = item.end?.trim();
+      const start = normalizeTime(item.start ?? "");
+      const end = normalizeTime(item.end ?? "");
 
       if (!title || !day || !start || !end) {
         skipped.push({
@@ -157,6 +194,8 @@ export async function POST(request: Request) {
         });
       }
     }
+
+    validEvents.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 
     if (validEvents.length === 0) {
       return NextResponse.json(

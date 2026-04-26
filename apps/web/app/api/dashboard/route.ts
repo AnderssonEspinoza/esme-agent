@@ -200,7 +200,7 @@ function eventStatus(start: string): "completed" | "current" | "pending" {
 
 function buildWeeklySchedule(events: DashboardEntity[]) {
   const now = new Date();
-  const grouped = new Map<number, Array<{ title: string; time: string; status: "completed" | "current" | "pending"; location: string }>>();
+  const grouped = new Map<number, Array<{ title: string; time: string; status: "completed" | "current" | "pending"; location: string; startsAtMs: number }>>();
 
   for (const event of events) {
     const startText = String(event.starts_at ?? event.startsAt ?? "");
@@ -221,10 +221,11 @@ function buildWeeklySchedule(events: DashboardEntity[]) {
         time: formatTimeRange(startText, endText),
         status: eventStatus(startText),
         location: String(event.location ?? ""),
+        startsAtMs: startsAt.getTime(),
       });
     }
 
-    existing.sort((a, b) => compareTimeRange(a.time, b.time));
+    existing.sort((a, b) => a.startsAtMs - b.startsAtMs);
     grouped.set(dayIndex, existing);
   }
 
@@ -233,7 +234,7 @@ function buildWeeklySchedule(events: DashboardEntity[]) {
     dayNumber: null,
     isoDate: `${dayIndex}`,
     isToday: now.getDay() === dayIndex,
-    items: grouped.get(dayIndex) ?? [],
+    items: (grouped.get(dayIndex) ?? []).map(({ startsAtMs: _startsAtMs, ...item }) => item),
   }));
 }
 
@@ -243,12 +244,6 @@ function isSameDay(left: Date, right: Date) {
     left.getMonth() === right.getMonth() &&
     left.getDate() === right.getDate()
   );
-}
-
-function compareTimeRange(left: string, right: string) {
-  const leftStart = left.split(" - ")[0] ?? left;
-  const rightStart = right.split(" - ")[0] ?? right;
-  return leftStart.localeCompare(rightStart);
 }
 
 function buildTodaySchedule(events: DashboardEntity[]) {

@@ -738,7 +738,8 @@ export default function App() {
             <p className="relative z-10 mt-4 text-sm text-slate-400">{dataStatus}</p>
           </div>
 
-          <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {activeTab === "dashboard" ? (
+            <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
             <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm">
               <div className="mb-4 flex items-center gap-3">
                 <Bot className="h-5 w-5 text-cyan-400" />
@@ -921,7 +922,12 @@ export default function App() {
                 <span className="ml-1 text-cyan-400">`/api/ingest/browser`</span>.
               </div>
             </section>
-          </div>
+            </div>
+          ) : (
+            <div className="mb-8 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm text-cyan-100">
+              Vista activa: <span className="font-semibold">{currentTabMeta.title}</span>. Esta sección usa tus datos reales importados/creados.
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
             <div className="flex flex-col gap-8 xl:col-span-2">

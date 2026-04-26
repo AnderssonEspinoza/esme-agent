@@ -106,6 +106,140 @@ function findTaskToComplete(tasks: AssistantContext["tasks"], message: string) {
   );
 }
 
+function parseSpanishDate(message: string) {
+  const text = message.toLowerCase();
+  const monthMap: Record<string, number> = {
+    enero: 0,
+    febrero: 1,
+    marzo: 2,
+    abril: 3,
+    mayo: 4,
+    junio: 5,
+    julio: 6,
+    agosto: 7,
+    septiembre: 8,
+    setiembre: 8,
+    octubre: 9,
+    noviembre: 10,
+    diciembre: 11,
+  };
+
+  const longMatch = text.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)(?:\s+de\s+(\d{4}))?/i);
+  if (longMatch) {
+    const day = Number.parseInt(longMatch[1] ?? "", 10);
+    const monthLabel = (longMatch[2] ?? "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
+    const month = monthMap[monthLabel];
+    const currentYear = new Date().getFullYear();
+    const year = Number.parseInt(longMatch[3] ?? `${currentYear}`, 10);
+    if (Number.isInteger(day) && month != null) {
+      const candidate = new Date(year, month, day, 23, 0, 0, 0);
+      if (candidate.getTime() < Date.now()) {
+        candidate.setFullYear(candidate.getFullYear() + 1);
+      }
+      return candidate;
+    }
+  }
+
+  const shortMatch = text.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  if (shortMatch) {
+    const day = Number.parseInt(shortMatch[1] ?? "", 10);
+    const month = Number.parseInt(shortMatch[2] ?? "", 10) - 1;
+    const yearRaw = shortMatch[3];
+    const baseYear = new Date().getFullYear();
+    const year = yearRaw
+      ? yearRaw.length === 2
+        ? 2000 + Number.parseInt(yearRaw, 10)
+        : Number.parseInt(yearRaw, 10)
+      : baseYear;
+    const candidate = new Date(year, month, day, 23, 0, 0, 0);
+    if (!Number.isNaN(candidate.getTime())) {
+      if (candidate.getTime() < Date.now()) {
+        candidate.setFullYear(candidate.getFullYear() + 1);
+      }
+      return candidate;
+    }
+  }
+
+  if (text.includes("mañana")) {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(21, 0, 0, 0);
+    return tomorrow;
+  }
+
+  return null;
+}
+
+function extractPlanSubject(message: string) {
+  const normalized = message.trim();
+  const markers = [" hasta ", " para ", " vence ", " entregar ", " entrega "];
+  let cutIndex = normalized.length;
+
+  for (const marker of markers) {
+    const markerIndex = normalized.toLowerCase().indexOf(marker);
+    if (markerIndex !== -1) {
+      cutIndex = Math.min(cutIndex, markerIndex);
+    }
+  }
+
+  const head = normalized.slice(0, cutIndex).trim();
+  const clean = head
+    .replace(/^tengo\s+/i, "")
+    .replace(/^un\s+/i, "")
+    .replace(/^una\s+/i, "")
+    .replace(/^el\s+/i, "")
+    .replace(/^la\s+/i, "")
+    .trim();
+
+  return clean || "pendiente importante";
+}
+
+function shouldCreateDeadlinePlan(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    (normalized.includes("curso") ||
+      normalized.includes("proyecto") ||
+      normalized.includes("trabajo") ||
+      normalized.includes("entrega")) &&
+    (normalized.includes("hasta") ||
+      normalized.includes("para") ||
+      normalized.includes("vence") ||
+      normalized.includes("entregar"))
+  );
+}
+
+async function insertTaskWithFallback(input: {
+  title: string;
+  description: string;
+  dueAt?: string;
+  priority: "low" | "medium" | "high" | "critical";
+}) {
+  if (isSupabaseAdminConfigured()) {
+    try {
+      await insertTask({
+        title: input.title,
+        description: input.description,
+        dueAt: input.dueAt,
+        priority: input.priority,
+        sourceType: "assistant",
+      });
+      return;
+    } catch {
+      // cae a local
+    }
+  }
+
+  await insertTaskLocal({
+    title: input.title,
+    description: input.description,
+    dueAt: input.dueAt,
+    priority: input.priority,
+    sourceType: "assistant",
+  });
+}
+
 function getUpcomingExams(exams: AssistantContext["exams"]) {
   const now = Date.now();
 
@@ -214,6 +348,59 @@ export async function buildAssistantReply(message: string) {
 
     return {
       reply: `Listo, marqué como completada: "${taskTitle}".`,
+      source: context.source,
+    };
+  }
+
+  if (shouldCreateDeadlinePlan(message)) {
+    const dueDate = parseSpanishDate(message);
+    if (!dueDate) {
+      return {
+        reply: "Puedo armarte un plan automático, pero necesito una fecha clara. Ejemplo: 14 de junio.",
+        source: context.source,
+      };
+    }
+
+    const subject = extractPlanSubject(message);
+    const daysLeft = Math.max(
+      1,
+      Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+    );
+    const priority = daysLeft <= 7 ? "high" : "medium";
+    const dueAtIso = dueDate.toISOString();
+
+    const milestones: Array<{ title: string; dueAt: string }> = [];
+    const checkpointOffsets = [14, 7, 2];
+    checkpointOffsets.forEach((offset) => {
+      const checkpoint = new Date(dueDate);
+      checkpoint.setDate(checkpoint.getDate() - offset);
+      checkpoint.setHours(20, 0, 0, 0);
+      if (checkpoint.getTime() > Date.now()) {
+        milestones.push({
+          title: `Avance ${subject} (${offset}d antes)`,
+          dueAt: checkpoint.toISOString(),
+        });
+      }
+    });
+
+    await insertTaskWithFallback({
+      title: `Completar: ${subject}`,
+      description: `Plan automático creado por E.S.M.E. Fecha límite detectada: ${formatDate(dueDate)}.`,
+      dueAt: dueAtIso,
+      priority,
+    });
+
+    for (const milestone of milestones) {
+      await insertTaskWithFallback({
+        title: milestone.title,
+        description: `Hito intermedio para no llegar tarde a: ${subject}.`,
+        dueAt: milestone.dueAt,
+        priority: "medium",
+      });
+    }
+
+    return {
+      reply: `Te armé un plan automático para "${subject}": 1 entrega final (${formatDate(dueDate)}) y ${milestones.length} hitos intermedios.`,
       source: context.source,
     };
   }
