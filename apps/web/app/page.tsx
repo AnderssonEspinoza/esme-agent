@@ -526,6 +526,23 @@ export default function App() {
     }
   };
 
+  const handleTelegramDailySummary = async () => {
+    setTelegramStatus("Enviando resumen de hoy...");
+
+    try {
+      const response = await fetch("/api/notify/telegram/daily-summary", {
+        method: "POST",
+      });
+      const json = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok) {
+        throw new Error(json.error ?? "No se pudo enviar el resumen diario.");
+      }
+      setTelegramStatus("Resumen diario enviado a Telegram.");
+    } catch (error) {
+      setTelegramStatus(String(error));
+    }
+  };
+
   const loadDashboardSnapshot = useCallback(async () => {
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
@@ -915,6 +932,13 @@ export default function App() {
                 type="button"
               >
                 Conectar webhook
+              </button>
+              <button
+                className="ml-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300 transition hover:bg-emerald-500/20"
+                onClick={handleTelegramDailySummary}
+                type="button"
+              >
+                Enviar resumen de hoy
               </button>
               {telegramStatus ? <p className="mt-4 text-sm text-slate-300">{telegramStatus}</p> : null}
               <div className="mt-6 rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">

@@ -3,7 +3,7 @@
   "name": "XIO Private Capture",
   "version": "0.1.0",
   "description": "Captura privada de datos desde portal universitario y LinkedIn hacia XIO.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "notifications"],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://*/*"

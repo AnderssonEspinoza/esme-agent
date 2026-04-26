@@ -11,6 +11,8 @@ Extension privada para capturar informacion desde paginas que ya estas viendo co
 5. Configurar:
    - base URL de XIO
    - token de ingesta
+6. En una pagina del portal, haz click en el icono de la extension para captura manual.
+7. Veras una notificacion de exito/error y badge con cantidad importada.
 
 ## Objetivo
 

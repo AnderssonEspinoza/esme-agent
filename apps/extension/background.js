@@ -20,9 +20,37 @@ async function sendCapture(payload) {
   }
 }
 
+function notify(title, message) {
+  chrome.notifications.create({
+    type: "basic",
+    iconUrl: "icon-128.png",
+    title,
+    message,
+  });
+}
+
+async function reportCaptureResult(result) {
+  if (result.ok) {
+    const imported = Number(result.data?.importedItems || 0);
+    const badgeText = imported > 0 ? String(Math.min(imported, 99)) : "OK";
+    await chrome.action.setBadgeText({ text: badgeText });
+    await chrome.action.setBadgeBackgroundColor({ color: "#0ea5e9" });
+    notify("XIO Capture", imported > 0 ? `Se importaron ${imported} entregas.` : "Captura enviada a E.S.M.E.");
+  } else {
+    await chrome.action.setBadgeText({ text: "ERR" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
+    notify("XIO Capture", result.error || "No se pudo enviar la captura.");
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== "XIO_CAPTURE") return;
-  sendCapture(message.payload).then(sendResponse);
+  sendCapture(message.payload).then((result) => {
+    if (!result.ok) {
+      void reportCaptureResult(result);
+    }
+    sendResponse(result);
+  });
   return true;
 });
 
@@ -60,8 +88,11 @@ chrome.action.onClicked.addListener(async (tab) => {
       },
     });
 
-    await sendCapture(result);
+    const response = await sendCapture(result);
+    await reportCaptureResult(response);
   } catch {
-    // noop
+    await chrome.action.setBadgeText({ text: "ERR" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
+    notify("XIO Capture", "No se pudo leer la página actual.");
   }
 });
