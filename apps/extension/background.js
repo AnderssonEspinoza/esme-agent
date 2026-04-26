@@ -13,8 +13,27 @@ async function sendCapture(payload) {
       },
       body: JSON.stringify(payload),
     });
-    const data = await response.json().catch(() => ({}));
-    return { ok: response.ok, data };
+    const text = await response.text();
+    const data = (() => {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { raw: text };
+      }
+    })();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error:
+          data?.error ||
+          `HTTP ${response.status}`,
+        data,
+      };
+    }
+
+    return { ok: true, status: response.status, data };
   } catch (error) {
     return { ok: false, error: String(error) };
   }
@@ -39,7 +58,12 @@ async function reportCaptureResult(result) {
   } else {
     await chrome.action.setBadgeText({ text: "ERR" });
     await chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
-    notify("XIO Capture", result.error || "No se pudo enviar la captura.");
+    const detail =
+      result.error ||
+      result.data?.error ||
+      (result.status ? `HTTP ${result.status}` : "") ||
+      "No se pudo enviar la captura.";
+    notify("XIO Capture", detail);
   }
 }
 
@@ -93,6 +117,6 @@ chrome.action.onClicked.addListener(async (tab) => {
   } catch {
     await chrome.action.setBadgeText({ text: "ERR" });
     await chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
-    notify("XIO Capture", "No se pudo leer la página actual.");
+    notify("XIO Capture", "No se pudo leer la página actual (revisa permisos o recarga la extension).");
   }
 });
