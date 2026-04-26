@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Profile {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String?   @unique
+  fullName        String?   @map("full_name")
+  timezone        String    @default("America/Lima")
+  quietHoursStart DateTime? @map("quiet_hours_start") @db.Time(6)
+  quietHoursEnd   DateTime? @map("quiet_hours_end") @db.Time(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  projects          Project[]
+  tasks             Task[]
+  events            Event[]
+  exams             Exam[]
+  notes             Note[]
+  reminders         Reminder[]
+  notificationRules NotificationRule[]
+  sources           Source[]
+
+  @@map("profiles")
+}
+
+model Project {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId       String    @map("profile_id") @db.Uuid
+  title           String
+  description     String?
+  status          String    @default("active")
+  priority        String    @default("medium")
+  startsAt        DateTime? @map("starts_at") @db.Timestamptz(6)
+  dueAt           DateTime? @map("due_at") @db.Timestamptz(6)
+  progressPercent Int       @default(0) @map("progress_percent")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+  exams     Exam[]
+  notes     Note[]
+  reminders Reminder[]
+
+  @@index([profileId, dueAt], map: "idx_projects_profile_due_at")
+  @@map("projects")
+}
+
+model Task {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId        String    @map("profile_id") @db.Uuid
+  projectId        String?   @map("project_id") @db.Uuid
+  title            String
+  description      String?
+  status           String    @default("active")
+  priority         String    @default("medium")
+  dueAt            DateTime? @map("due_at") @db.Timestamptz(6)
+  scheduledFor     DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6)
+  isAllDay         Boolean   @default(false) @map("is_all_day")
+  isImportant      Boolean   @default(false) @map("is_important")
+  reminderStrategy String    @default("auto") @map("reminder_strategy")
+  sourceType       String    @default("manual") @map("source_type")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  notes     Note[]
+  reminders Reminder[]
+
+  @@index([profileId, status, dueAt], map: "idx_tasks_profile_status_due_at")
+  @@map("tasks")
+}
+
+model Event {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId        String    @map("profile_id") @db.Uuid
+  title            String
+  description      String?
+  location         String?
+  startsAt         DateTime  @map("starts_at") @db.Timestamptz(6)
+  endsAt           DateTime? @map("ends_at") @db.Timestamptz(6)
+  requiresTravel   Boolean   @default(false) @map("requires_travel")
+  status           String    @default("scheduled")
+  reminderStrategy String    @default("auto") @map("reminder_strategy")
+  sourceType       String    @default("manual") @map("source_type")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  reminders Reminder[]
+
+  @@index([profileId, startsAt], map: "idx_events_profile_starts_at")
+  @@map("events")
+}
+
+model Exam {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId        String    @map("profile_id") @db.Uuid
+  projectId        String?   @map("project_id") @db.Uuid
+  courseName       String    @map("course_name")
+  title            String
+  description      String?
+  examAt           DateTime  @map("exam_at") @db.Timestamptz(6)
+  location         String?
+  status           String    @default("scheduled")
+  priority         String    @default("high")
+  studyPlanStatus  String    @default("missing") @map("study_plan_status")
+  reminderStrategy String    @default("auto") @map("reminder_strategy")
+  sourceType       String    @default("manual") @map("source_type")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  notes     Note[]
+  reminders Reminder[]
+
+  @@index([profileId, examAt], map: "idx_exams_profile_exam_at")
+  @@map("exams")
+}
+
+model Note {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId String   @map("profile_id") @db.Uuid
+  projectId String?  @map("project_id") @db.Uuid
+  taskId    String?  @map("task_id") @db.Uuid
+  examId    String?  @map("exam_id") @db.Uuid
+  title     String?
+  content   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  task    Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  exam    Exam? @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@map("notes")
+}
+
+model Reminder {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId    String    @map("profile_id") @db.Uuid
+  taskId       String?   @map("task_id") @db.Uuid
+  eventId      String?   @map("event_id") @db.Uuid
+  examId       String?   @map("exam_id") @db.Uuid
+  projectId    String?   @map("project_id") @db.Uuid
+  source       String    @default("auto")
+  kind         String    @default("alert")
+  title        String
+  message      String?
+  remindAt     DateTime  @map("remind_at") @db.Timestamptz(6)
+  status       String    @default("pending")
+  snoozedUntil DateTime? @map("snoozed_until") @db.Timestamptz(6)
+  sentAt       DateTime? @map("sent_at") @db.Timestamptz(6)
+  deliveredAt  DateTime? @map("delivered_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile    Profile                 @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  task       Task?                   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  event      Event?                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  exam       Exam?                   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  project    Project?                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([profileId, status, remindAt], map: "idx_reminders_profile_status_remind_at")
+  @@map("reminders")
+}
+
+model NotificationRule {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId     String   @map("profile_id") @db.Uuid
+  entityType    String   @map("entity_type")
+  triggerType   String   @map("trigger_type")
+  offsetMinutes Int?     @map("offset_minutes")
+  isEnabled     Boolean  @default(true) @map("is_enabled")
+  maxRetries    Int      @default(1) @map("max_retries")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, entityType], map: "idx_notification_rules_profile_entity")
+  @@map("notification_rules")
+}
+
+model NotificationDelivery {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reminderId        String    @map("reminder_id") @db.Uuid
+  channel           String
+  status            String    @default("pending")
+  providerMessageId String?   @map("provider_message_id")
+  errorMessage      String?   @map("error_message")
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
+  deliveredAt       DateTime? @map("delivered_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reminder Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+
+  @@map("notification_deliveries")
+}
+
+model Source {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId    String    @map("profile_id") @db.Uuid
+  type         String
+  label        String
+  status       String    @default("disconnected")
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  metadata     Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("sources")
+}

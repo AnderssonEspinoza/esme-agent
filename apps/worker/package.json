@@ -1,0 +1,11 @@
+{
+  "name": "@xio/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/dev.js",
+    "cron:reminders": "node src/cron-reminders.js"
+  }
+}
+

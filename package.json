@@ -1,0 +1,16 @@
+{
+  "name": "xio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Asistente personal multiplataforma para agenda, pendientes y recordatorios.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:web",
+    "dev:web": "npm run dev -w @xio/web",
+    "dev:mobile": "echo \"Pendiente: inicializar apps/mobile con Expo\"",
+    "dev:worker": "echo \"Pendiente: inicializar apps/worker\""
+  }
+}

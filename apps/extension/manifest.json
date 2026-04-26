@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "XIO Private Capture",
+  "version": "0.1.0",
+  "description": "Captura privada de datos desde portal universitario y LinkedIn hacia XIO.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["content-linkedin.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_title": "XIO Capture"
+  }
+}
+

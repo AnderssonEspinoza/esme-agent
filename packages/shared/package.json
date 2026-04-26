@@ -1,0 +1,11 @@
+{
+  "name": "@xio/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./domain": "./src/domain.ts",
+    "./reminder-defaults": "./src/reminder-defaults.ts"
+  }
+}
+
